@@ -20,10 +20,10 @@ synthetic.** Nothing here describes a real organization or a real individual.
 ## Why this exists
 
 Agents that work inside companies get things wrong for a reason that has little to do with
-reasoning ability: **the truth moved.** A discount was approved and then superseded. A renewal was
-repriced. The person who owned an account changed. A policy answer that was correct in March is
-wrong in June. The agent retrieves something true-sounding, and ships it after it stopped being
-true.
+reasoning ability: **the truth moved.** A discount was approved and then superseded. A deal moved
+to a new stage after the agent read the CRM. A product incident was fixed, so "that capability is
+broken" stopped being the right answer. A policy answer that was correct in March is wrong in
+June. The agent retrieves something true-sounding, and ships it after it stopped being true.
 
 That failure is hard to test against production systems, because you cannot replay a real company
 and you rarely have a trustworthy record of what was knowable at the moment an answer was given.
@@ -43,8 +43,8 @@ This repository gives you one that is fully determined:
 - **Runs are reproducible.** One seed, a synthetic business-day clock, no wall-clock reads in the
   state machinery. The same inputs produce the same company, every time.
 
-So you can construct the exact situation you want to test — a superseded approval, a stale
-ownership fact, a support reply that was correct an hour earlier — and know precisely what the right
+So you can construct the exact situation you want to test — a superseded approval, a deal stage
+that has since moved, a support reply that was correct an hour earlier — and know precisely what the right
 answer was. That makes the repository useful for testing managed agents, autonomous agents, and
 multi-agent workflows that need reliable, auditable decisions over changing enterprise context,
 with provenance and an audit trail.
