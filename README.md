@@ -213,6 +213,7 @@ explicitly rather than printing a zero.
 
 - Website: [rithmo.ai](https://rithmo.ai)
 - Email: [hello@rithmo.ai](mailto:hello@rithmo.ai)
+- Book time: [Google Calendar](https://calendar.app.google/6zoprUWgJn1QDusf7)
 - GitHub: [Open an issue](https://github.com/Rithmo-Inc/rithmo/issues/new)
 
 ## License
