@@ -1,13 +1,18 @@
 # Rithmo
 
-A deterministic synthetic enterprise for testing agents against organizational truth that changes
-over time.
+A deterministic synthetic enterprise for **AI agent reliability** and **AI agent governance**
+testing against business context that changes over time.
 
 Rithmo ships a fictional company — **Meridian Works**, which sells scheduling and dispatch software
 to construction, facilities, trucking and field-service businesses — with a CRM, a staff roster, a
 support inbox, an authority model, and an append-only record of everything anyone has decided. You
-can run the company forward, ask it what was true at any point since the run began, and check whether
-an agent's answer was actually correct *then*.
+can run the company forward, ask it what was true at any point since the run began, and test whether
+an AI agent acts on **current, resolved business context** instead of stale, conflicting, or
+superseded information.
+
+The commercial Rithmo product is the **fact-checker for AI agents**. This repository is the open
+evaluation environment for testing that class of reliability and governance failure against known
+truth.
 
 **Every person, company, email address, domain, deal and dollar figure in this repository is
 synthetic.** Nothing here describes a real organization or a real individual.
@@ -40,7 +45,9 @@ This repository gives you one that is fully determined:
 
 So you can construct the exact situation you want to test — a superseded approval, a stale
 ownership fact, a support reply that was correct an hour earlier — and know precisely what the right
-answer was.
+answer was. That makes the repository useful for testing managed agents, autonomous agents, and
+multi-agent workflows that need reliable, auditable decisions over changing enterprise context,
+with provenance and an audit trail.
 
 ## Run it
 
