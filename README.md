@@ -209,6 +209,12 @@ calibrated: it asks for repeated incident-caused tickets on a single account, wh
 rarely produces, so the risk register is usually empty over a short horizon. The runner states that
 explicitly rather than printing a zero.
 
+## Talk to the builders
+
+- Website: [rithmo.ai](https://rithmo.ai)
+- Email: [hello@rithmo.ai](mailto:hello@rithmo.ai)
+- GitHub: [Open an issue](https://github.com/Rithmo-Inc/rithmo/issues/new)
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
