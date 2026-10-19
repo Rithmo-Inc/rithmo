@@ -87,6 +87,17 @@ document three business days after each decision. The rule changes cycle through
 approval and the response targets for dispatch failures, questions, and degraded service. Each
 change goes through the existing authority check and append-only ledger.
 
+The run length, policy interval, and document delay are independent. For example:
+
+```sh
+npm run company -- --days=52 --fresh --seed=7 --start=2026-10-01 --policy-every=25 --doc-delay=10
+```
+
+This archives any existing company and runs a new one for 52 business days. It changes the policy
+on days 25 and 50, with document updates due on days 35 and 60. At the end, the operative policy is
+version **1.2** and the local document is still **1.1**. The second update remains scheduled for
+day 60. These numbers are business-day counts within the run, not calendar dates.
+
 | Control | Meaning |
 |---|---|
 | `--days=45` | Advance 45 additional business days. Required for a run. |
@@ -96,7 +107,7 @@ change goes through the existing authority check and append-only ledger.
 | `--doc-delay=never` | Leave new decisions unscheduled for document publication. |
 | `--seed=7` | Set the seed when creating a company. Ignored when resuming. |
 | `--start=2026-10-01` | Set the first simulated date when creating a company. Weekends move to Monday. Ignored when resuming. |
-| `--fresh` | Move the entire existing company, including policy history and pending updates, into `var/archive/`, then start another. |
+| `--fresh` | Move the existing company state, including policy history and pending updates, into `var/archive/`, then start another. |
 | `--help` | Print the controls without advancing time. |
 
 The space-separated form also works, for example `--days 45`. Unknown, duplicate, or invalid options
@@ -115,6 +126,10 @@ already scheduled keep their history and due dates. A published document include
 through its version, so a later publication can also include an earlier unscheduled revision.
 An existing company from an earlier release starts policy progression from its current day;
 earlier simulation history is preserved.
+
+If a run stops during policy admission or publication, continuing it reuses the recorded decision.
+An interrupted policy day keeps the settings it started with; newly supplied settings apply after
+that day. Malformed or inconsistent saved history is reported, rather than replaced with empty state.
 
 To start a separate experiment, with the previous company safely archived:
 
@@ -277,9 +292,12 @@ proves the redaction works — the guard, not the thing guarded.
 
 ## Status
 
-Early. The surface above is tested and stable enough to build evaluations on, but this is version
-0.1.0 and all three layers will grow. The pipeline, support inbox, incidents, renewals, risk register,
-and support policy evolve as the company advances. The support policy has a local document whose
+**Version 0.2.0** adds terminal controls for changing policies and delayed local documents. See
+[CHANGELOG.md](CHANGELOG.md) for release notes and compatibility details. Releases distribute the
+source through GitHub; `package.json` remains private and this package is not published to npm.
+
+The project is early and all three layers will grow. The pipeline, support inbox, incidents,
+renewals, risk register, and support policy evolve as the company advances. The support policy has a local document whose
 publication delay you control. The roster, product definitions, and other authoring documents remain
 fixed. The CLI does not yet generate ownership changes or renewal repricing; those are separate
 scenarios from the events this runner currently produces.
@@ -290,6 +308,16 @@ in `src/living/worldClock.ts` carries an explicit compatibility contract for exa
 calibrated: it asks for repeated incident-caused tickets on a single account, which a 30-day run
 rarely produces, so the risk register is usually empty over a short horizon. The runner states that
 explicitly rather than printing a zero.
+
+### Next work (planned)
+
+- A runnable support-processor example using the existing optional callback, so an agent can work
+  the generated inbox.
+- A worked evaluation comparing the delayed document an agent reads with operative policy and
+  the response rules in force when a request arrived.
+
+These items are planned, with no release date committed. Framework and MCP adapters are not part
+of version 0.2.0.
 
 ## Talk to the builders
 
