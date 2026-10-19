@@ -57,21 +57,91 @@ step and no build step**.
 ```sh
 git clone https://github.com/Rithmo-Inc/rithmo.git
 cd rithmo
-npm test                        # 147 tests: 145 passing, 2 skipped
-npm run company -- --days=30    # run Meridian forward 30 business days
+npm test                       # run the checks
+npm run company -- --days=45    # run Meridian forward 45 business days
 ```
 
-The two skips are reconciliation tests that compare a live company against its own ledger; a fresh
+Two reconciliation tests compare a live company against its own ledger; a fresh
 clone has not run the company yet, so they report *skipped* rather than quietly passing with nothing
 to check.
 
 `npm run company` writes the company's state under `var/` and the next invocation continues from
-there, so `--days=1` thirty times and `--days=30` once produce the identical company. To start a new
-one, `--fresh` moves the existing state into `var/archive/` and tells you where — nothing is ever
-deleted. `--seed=<n>` and `--start=<YYYY-MM-DD>` apply when a company is being initialised.
+there. With the same settings, `--days=1` thirty times and `--days=30` once produce the identical
+company. Policies change every 20 business days by default, and the local policy document catches
+up three business days after each decision. The company advances while the command runs; it stops
+when the command finishes.
 
 There are no dependencies to install. `npm install` is not required and there is no lockfile —
 `node --test` is the whole toolchain.
+
+### Terminal controls
+
+Use one command to set the pace and advance the company:
+
+```sh
+npm run company -- --days=45 --policy-every=5 --doc-delay=3
+```
+
+That adds 45 business days, changing a support-policy rule every five days and updating the local
+document three business days after each decision. The rule changes cycle through data-export
+approval and the response targets for dispatch failures, questions, and degraded service. Each
+change goes through the existing authority check and append-only ledger.
+
+| Control | Meaning |
+|---|---|
+| `--days=45` | Advance 45 additional business days. Required for a run. |
+| `--policy-every=5` | Change a rule every five business days. Default: `20`; `never` stops future automatic changes. |
+| `--doc-delay=3` | Publish each decision to the local policy document after 1–60 business days. Default: `3`. |
+| `--doc-delay=random` | Pick a reproducible delay of 1–20 business days for each revision, weighted toward shorter delays. |
+| `--doc-delay=never` | Leave new decisions unscheduled for document publication. |
+| `--seed=7` | Set the seed when creating a company. Ignored when resuming. |
+| `--start=2026-10-01` | Set the first simulated date when creating a company. Weekends move to Monday. Ignored when resuming. |
+| `--fresh` | Move the entire existing company, including policy history and pending updates, into `var/archive/`, then start another. |
+| `--help` | Print the controls without advancing time. |
+
+The space-separated form also works, for example `--days 45`. Unknown, duplicate, or invalid options
+are rejected before any company state is changed, including when `--fresh` is present.
+
+Settings persist. Continue without repeating them, or change them for future days:
+
+```sh
+npm run company -- --days=1                         # continue with saved settings
+npm run company -- --days=10 --doc-delay=random      # change future document delays
+npm run company -- --days=10 --policy-every=never    # pause new policy changes
+```
+
+Changing a setting records when it takes effect. Decisions already made and document updates
+already scheduled keep their history and due dates. A published document includes all decisions
+through its version, so a later publication can also include an earlier unscheduled revision.
+An existing company from an earlier release starts policy progression from its current day;
+earlier simulation history is preserved.
+
+To start a separate experiment, with the previous company safely archived:
+
+```sh
+npm run company -- --days=45 --fresh --seed=7 --start=2026-10-01 --policy-every=5 --doc-delay=never
+```
+
+An interrupted archive leaves `var/company-archive-in-progress.json` listing the source,
+destination, and files. Further runs stop until those moves are completed or restored and the
+marker is removed. The existing files remain available in the listed locations.
+
+The terminal reports the current policy version and the version in the local document. Their gap
+is an intentional test case: the company has made a decision that its document has not yet caught
+up with. All of this runs locally with the published source.
+
+The document's readable text is the `content` field in `var/company-policy-document.json`, alongside
+its version and publication date. The full structured revision history is in
+`var/living-document-revisions.jsonl`; settings and their effective days are in
+`var/company-policy-state.json`. Policy decisions and document publication happen at the end of
+each business day. A start date before the policy's first issue on September 14, 2026 advances
+normally, with no operative policy or published document until that date.
+
+For an evaluation, `supportPolicyHistoryOf(revisions).rulesAt(request.receivedAtMs)` selects the
+response rules promised when a request arrived. Pass those rules to the rule-aware `targetDeadline`
+or `firstResponseSla` functions in `src/living/supportSla.ts`. The original signatures retain their
+fixed baseline defaults for existing callers. A later policy change does not revise an earlier
+customer's response promise.
 
 ## What is included
 
@@ -84,6 +154,7 @@ There are no dependencies to install. `npm install` is not required and there is
 | **Historical reconstruction** | As-of views of any deal, account or support request at any point since the run began, plus a first-response SLA read-model over them. |
 | **A synthetic CRM dataset** | 223 companies, 600 contacts, 470 deals, 3,343 activities and a 32-person roster, in `seed/hubspot-manifest.json`. |
 | **A deterministic runner** | `npm run company` advances the company one business day at a time: opportunities open, deals move and close, renewals come due on schedule, customers write in, product capabilities break and get fixed, accounts go on a risk register. Seeded, offline, and reproducible. |
+| **Changing policies and delayed documents** | Terminal controls set policy cadence and document delay. Admitted decisions produce immutable revisions; a separately published local document can lag behind them. Settings, pending updates, and history survive subsequent runs. |
 | **A model contract, with no provider** | Request/reply shapes, a `ModelClient` interface, and a scripted client for tests. Bring your own provider implementation; this repository contains no HTTP client, no API-key read and no network call. |
 
 ## Architecture
@@ -98,8 +169,9 @@ employee runtime. Core runs on its own: it imports nothing but itself and Node b
 
 ### World State — synthetic time, durable state, reconstruction
 
-A seeded business-day clock and intraday planner, checkpointed CRM and support state, and as-of views
-of any deal, account or request at any point since the run began. World State may read down into Core.
+A seeded business-day clock and intraday planner, checkpointed CRM and support state, append-only
+document revisions, and as-of views of any deal, account or request at any point since the run began.
+World State may read down into Core.
 **Core may not read up into World State** — otherwise the guarantee that Core runs alone would quietly
 stop being true.
 
@@ -107,7 +179,7 @@ stop being true.
 
 What moves the company forward: the weighted event families, what each one does to the CRM, the
 consequences that follow (an incident fixed, a renewal due, a risk call, a recovery plan), the state
-those own, and four local transports that publish through Core's action client. Living Company may
+those own, policy decisions and document publication, and local transports that publish through Core's action client. Living Company may
 read down into World State and Core; **neither may read up into it.**
 
 Working a customer's support request is the one thing in this company that would need judgement
@@ -206,8 +278,11 @@ proves the redaction works — the guard, not the thing guarded.
 ## Status
 
 Early. The surface above is tested and stable enough to build evaluations on, but this is version
-0.1.0 and all three layers will grow. The company's people, products and documents are fixed today:
-what evolves is its pipeline, its support inbox, its incidents, its renewals and its risk register.
+0.1.0 and all three layers will grow. The pipeline, support inbox, incidents, renewals, risk register,
+and support policy evolve as the company advances. The support policy has a local document whose
+publication delay you control. The roster, product definitions, and other authoring documents remain
+fixed. The CLI does not yet generate ownership changes or renewal repricing; those are separate
+scenarios from the events this runner currently produces.
 Determinism and the layer boundary are the two properties intended to hold across changes; `daySeed`
 in `src/living/worldClock.ts` carries an explicit compatibility contract for exactly that reason.
 

@@ -25,7 +25,8 @@ export type ActKind =
   | "renewal_pricing"
   | "renewal_prep"
   | "deal_desk_review"
-  | "stage_exit_review";
+  | "stage_exit_review"
+  | "support_policy_revised";
 
 export type ActBody =
   | { kind: "message"; channel: string; text: string }
@@ -327,7 +328,34 @@ export type ActBody =
         changedBehavior: boolean;
         modelChose: string;
       };
+    }
+  | {
+      kind: "support_policy_revised";
+      /** The policy document. Only MW-LIV-0001 has revisable rules today; see the charter. */
+      artifactId: string;
+      /** A revisable rule of that document, by its charter id. */
+      clauseId: string;
+      previousValue: SupportPolicyRuleValue;
+      newValue: SupportPolicyRuleValue;
+      /** The version the revised document is issued as, e.g. "1.1". */
+      versionLabel: string;
+      /** World instant the revised rule takes force. The decision itself is the act's submittedAt. */
+      effectiveAtMs: number;
     };
+
+/**
+ * The value of a revisable support-policy rule. Today one shape, for one rule: how support handles a
+ * customer's request for an export of their own data -- directly, or by escalating to an approver.
+ */
+export type SupportPolicyClauseValue =
+  | { disposition: "direct" }
+  | { disposition: "escalate"; ownerEmployeeId: string };
+
+/** A response target: how soon support answers one severity, in business hours or business days. */
+export type SupportResponseTargetValue = { amount: number; unit: "business_hours" | "business_days" };
+
+/** The value of any revisable support-policy rule: the data-export rule, or one severity's response target. */
+export type SupportPolicyRuleValue = SupportPolicyClauseValue | SupportResponseTargetValue;
 
 export type Destination =
   // The CRM is a real destination, not a comms channel. A stage change lands in the system

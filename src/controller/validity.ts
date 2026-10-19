@@ -8,8 +8,8 @@
 // in different places. This module answers only "is it operative". A REJECTED act is
 // still published and stays visible in the world -- see actions/client.ts.
 
-import { mayEmit, withinScope, type RoleId } from "../charter/charter.ts";
-import type { ActBody, SubmittedAct, Verdict } from "../actions/types.ts";
+import { REVISABLE_SUPPORT_POLICY_CLAUSES, SUPPORT_POLICY_INITIAL_EFFECTIVE_AT_MS, SUPPORT_POLICY_INITIAL_VERSION, mayEmit, sameSupportPolicyClauseValue, withinScope, type RoleId } from "../charter/charter.ts";
+import type { ActBody, SubmittedAct, SupportPolicyRuleValue, Verdict } from "../actions/types.ts";
 import type { Ledger } from "./ledger.ts";
 
 export interface ValidityOutcome {
@@ -320,6 +320,69 @@ export function deriveValidity(input: ValidityInput): ValidityOutcome {
     return { verdict: "ADMITTED", reason: `renewal prep ${body.disposition} on ${body.dealId}`, effectiveAt: act.submittedAt, supersedes: null };
   }
 
+  // The owner of a policy revises one of its structured rules.
+  if (body.kind === "support_policy_revised") {
+    // Scope: the support policy only, a revisable rule, two different well-formed values, a named
+    // version, an instant. The charter's structural predicate -- wrong document, unknown rule and
+    // malformed values all stop here.
+    if (!withinScope(actorRole, body.kind, body as unknown as Record<string, unknown>)) {
+      return {
+        verdict: "REJECTED_SCOPE",
+        reason: `${body.artifactId} rule ${body.clauseId} is not a revision ${actorRole} may make in that form`,
+        effectiveAt: null,
+        supersedes: null,
+      };
+    }
+
+    // Prerequisite 1: the version is unused, so a replayed or retried decision cannot issue the same
+    // version twice. Plays the role incidentAlreadyStarted plays for incidents.
+    const earlier = admittedPolicyRevisions(ledger, body.artifactId);
+    const reissue = earlier.find((r) => r.body.versionLabel === body.versionLabel);
+    if (body.versionLabel === SUPPORT_POLICY_INITIAL_VERSION || reissue) {
+      return {
+        verdict: "REJECTED_PREREQ",
+        reason: `${body.artifactId} version ${body.versionLabel} was already issued${reissue ? ` by ${reissue.actId}` : " as the original policy"}`,
+        effectiveAt: null,
+        supersedes: null,
+      };
+    }
+
+    // Prerequisite 2: the owner is revising the rule as it actually stands. A claimed previous value
+    // that is not the current one is a decision made against a superseded document.
+    const current = currentSupportPolicyClauseValue(ledger, body.artifactId, body.clauseId);
+    if (!sameSupportPolicyClauseValue(current, body.previousValue)) {
+      return {
+        verdict: "REJECTED_PREREQ",
+        reason: `${body.artifactId} rule ${body.clauseId} is ${JSON.stringify(current)}, not the claimed ${JSON.stringify(body.previousValue)}`,
+        effectiveAt: null,
+        supersedes: null,
+      };
+    }
+
+    // Effective time: a revision takes force at or after it is decided -- never retroactively, which
+    // would change the rules that governed work already done -- and after every earlier revision of
+    // the same document, so "which version was in force at T" always has one answer.
+    const latestEffective = Math.max(SUPPORT_POLICY_INITIAL_EFFECTIVE_AT_MS, ...earlier.map((r) => r.body.effectiveAtMs));
+    const latestIssued = Math.max(SUPPORT_POLICY_INITIAL_EFFECTIVE_AT_MS, ...earlier.map((r) => r.submittedAt));
+    if (!Number.isSafeInteger(act.submittedAt) || act.submittedAt < latestIssued || body.effectiveAtMs < act.submittedAt || body.effectiveAtMs <= latestEffective) {
+      return {
+        verdict: "REJECTED_EFFECTIVE_TIME",
+        reason: `${body.artifactId} version ${body.versionLabel} would precede the issued policy, an earlier decision, or its own decision time`,
+        effectiveAt: null,
+        supersedes: null,
+      };
+    }
+
+    return {
+      verdict: "ADMITTED",
+      reason: `${body.artifactId} rule ${body.clauseId} revised as version ${body.versionLabel}`,
+      // When the revised rule takes FORCE, which is the business effective time (timing.ts), not when
+      // it was decided.
+      effectiveAt: body.effectiveAtMs,
+      supersedes: null,
+    };
+  }
+
   // A product capability breaks.
   if (body.kind === "product_incident_started") {
     // Scope: a capability that can break, at the severity it carries, affecting somebody, with a
@@ -601,6 +664,25 @@ export function deriveValidity(input: ValidityInput): ValidityOutcome {
   };
 }
 
+type PolicyRevisionRow = { actId: string; submittedAt: number; body: Extract<ActBody, { kind: "support_policy_revised" }> };
+
+/** Admitted revisions of one policy document, in ledger order. */
+export function admittedPolicyRevisions(ledger: Ledger, artifactId: string): PolicyRevisionRow[] {
+  return ledger
+    .all()
+    .filter((r) => r.verdict === "ADMITTED" && r.body.kind === "support_policy_revised" && r.body.artifactId === artifactId)
+    .map((r) => ({ actId: r.actId, submittedAt: r.submittedAt, body: r.body as PolicyRevisionRow["body"] }));
+}
+
+/**
+ * The value a revisable rule holds after every admitted revision: the last admitted new value, or the
+ * value the policy was first issued with. From the ledger and the charter alone.
+ */
+export function currentSupportPolicyClauseValue(ledger: Ledger, artifactId: string, clauseId: string): SupportPolicyRuleValue {
+  const revised = admittedPolicyRevisions(ledger, artifactId).filter((r) => r.body.clauseId === clauseId);
+  return revised.length ? revised[revised.length - 1].body.newValue : REVISABLE_SUPPORT_POLICY_CLAUSES[clauseId].asIssued;
+}
+
 /** Has this support request already been raised? The log is the authority. */
 function supportRequestAlreadyRaised(ledger: Ledger, requestId: string): boolean {
   return ledger.all().some(
@@ -611,7 +693,6 @@ function supportRequestAlreadyRaised(ledger: Ledger, requestId: string): boolean
   );
 }
 
-/** Has this incident already been started? The log is the authority. */
 /** The admitted support request with this id, or null. */
 function admittedSupportRequest(ledger: Ledger, requestId: string): { companyId: string; effectiveAt: number } | null {
   for (const r of ledger.all()) {
@@ -631,6 +712,7 @@ function admittedRiskCall(ledger: Ledger, companyId: string): string | null {
   return null;
 }
 
+/** Has this incident already been started? The log is the authority. */
 function incidentAlreadyStarted(ledger: Ledger, incidentId: string): boolean {
   return admittedIncidentStart(ledger, incidentId) !== null;
 }
