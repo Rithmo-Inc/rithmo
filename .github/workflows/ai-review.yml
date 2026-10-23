@@ -1,0 +1,51 @@
+name: ai-review
+
+# An automated first review of every pull request into this repository, by Claude.
+# It posts its findings as a PR comment and passes or fails the `ai-review` check.
+#
+# SECURITY. `pull_request_target` runs THIS file and the reviewer as they are on the base branch,
+# with the repository's secrets, for pull requests from forks too. That is safe only because nothing
+# from the pull request is ever executed: the job checks out the base branch, installs the reviewer's
+# own pinned dependencies from the base branch, and reads the pull request's diff as text through the
+# GitHub API. Do not add a step that checks out, builds, installs or runs the pull request's code.
+# A change a pull request makes to this file or to .github/ai-review/ takes effect only once merged.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Check out the base branch (never the pull request)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install the reviewer's pinned dependencies
+        working-directory: .github/ai-review
+        run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Review
+        working-directory: .github/ai-review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node review.mjs

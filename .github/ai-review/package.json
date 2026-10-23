@@ -1,0 +1,10 @@
+{
+  "name": "rithmo-ai-review",
+  "private": true,
+  "description": "The pull-request reviewer for this repository's CI. Not part of the published package, which has no dependencies.",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.2.0",
+    "zod": "4.6.7"
+  }
+}
