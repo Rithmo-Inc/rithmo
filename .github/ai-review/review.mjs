@@ -13,10 +13,16 @@ import { z } from "zod";
 
 const MODEL = "claude-opus-5-5";
 // Larger diffs are not reviewed automatically: a person reviews them, or the change is split.
-const MAX_DIFF_CHARS = 400_000;
+const MAX_DIFF_CHARS = 200_000;
 const MARKER = "<!-- rithmo-ai-review -->";
+// The only account whose comment this script treats as its own.
+const BOT_LOGIN = "github-actions[bot]";
+// Authors whose pull requests are reviewed automatically. Anyone else's waits for a maintainer to add
+// this label, so a stranger cannot spend the repository's Anthropic key by opening or pushing to PRs.
+const TRUSTED = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+const REVIEW_LABEL = "ai-review";
 
-const { ANTHROPIC_API_KEY, GITHUB_TOKEN, REPOSITORY, PR_NUMBER } = process.env;
+const { ANTHROPIC_API_KEY, GITHUB_TOKEN, REPOSITORY, PR_NUMBER, HEAD_SHA } = process.env;
 
 const Finding = z.object({
   severity: z.enum(["blocking", "warning", "note"]),
@@ -47,8 +53,12 @@ async function github(path, init = {}) {
 /** Create the review comment, or update the one an earlier run left. */
 async function postComment(body) {
   const text = `${MARKER}\n${body}`;
-  const comments = await (await github(`/issues/${PR_NUMBER}/comments?per_page=100`)).json();
-  const mine = comments.find((c) => c.user?.type === "Bot" && c.body?.startsWith(MARKER));
+  let mine;
+  for (let page = 1; !mine && page <= 50; page++) {
+    const comments = await (await github(`/issues/${PR_NUMBER}/comments?per_page=100&page=${page}`)).json();
+    mine = comments.find((c) => c.user?.login === BOT_LOGIN && c.body?.startsWith(MARKER));
+    if (comments.length < 100) break;
+  }
   if (mine) await github(`/issues/comments/${mine.id}`, { method: "PATCH", body: JSON.stringify({ body: text }) });
   else await github(`/issues/${PR_NUMBER}/comments`, { method: "POST", body: JSON.stringify({ body: text }) });
 }
@@ -63,21 +73,24 @@ async function fail(reason) {
   process.exit(1);
 }
 
-function render(review) {
+/** Model text goes into a comment posted as this repository: no @-mentions, no images. */
+const inert = (text) => text.replace(/@/g, "@\u200b").replace(/!\[/g, "!\u200b[");
+
+function render(review, model) {
   const icon = { blocking: "🛑", warning: "⚠️", note: "💬" };
   const blocking = review.findings.filter((f) => f.severity === "blocking");
   const lines = [
     `### AI review: ${blocking.length ? `${blocking.length} blocking issue${blocking.length === 1 ? "" : "s"}` : "pass"}`,
     "",
-    review.summary,
+    inert(review.summary),
   ];
   for (const sev of ["blocking", "warning", "note"]) {
     for (const f of review.findings.filter((x) => x.severity === sev)) {
       const where = f.line ? `${f.file}:${f.line}` : f.file;
-      lines.push("", `${icon[sev]} **${f.title}** — \`${where}\``, "", f.detail);
+      lines.push("", `${icon[sev]} **${inert(f.title)}** — \`${inert(where).replace(/`/g, "'")}\``, "", inert(f.detail));
     }
   }
-  lines.push("", `<sub>Automated review by ${MODEL} against [.github/ai-review/REVIEW_RULES.md](../blob/main/.github/ai-review/REVIEW_RULES.md). It reviews the diff only and never runs the pull request's code.</sub>`);
+  lines.push("", `<sub>Automated review by ${model} against [.github/ai-review/REVIEW_RULES.md](../blob/main/.github/ai-review/REVIEW_RULES.md). It reviews the diff only and never runs the pull request's code.</sub>`);
   return lines.join("\n");
 }
 
@@ -87,8 +100,19 @@ if (!GITHUB_TOKEN || !REPOSITORY || !PR_NUMBER) {
 }
 if (!ANTHROPIC_API_KEY) await fail("The repository has no `ANTHROPIC_API_KEY` secret, so the automated review could not run.");
 
-const pr = await (await github(`/pulls/${PR_NUMBER}`)).json();
-const diff = await (await github(`/pulls/${PR_NUMBER}`, { headers: { accept: "application/vnd.github.v3.diff" } })).text();
+let pr, diff;
+try {
+  pr = await (await github(`/pulls/${PR_NUMBER}`)).json();
+  diff = await (await github(`/pulls/${PR_NUMBER}`, { headers: { accept: "application/vnd.github.v3.diff" } })).text();
+} catch (e) {
+  await fail(`The pull request could not be read from GitHub (${e.message.split("\n")[0].slice(0, 200)}). Very large diffs cannot be fetched at all.`);
+}
+if (HEAD_SHA && pr.head?.sha !== HEAD_SHA) {
+  await fail("The pull request changed while this review was starting. The run for its newest commit reviews it.");
+}
+if (!TRUSTED.has(pr.author_association) && !pr.labels?.some((l) => l.name === REVIEW_LABEL)) {
+  await fail(`Pull requests from outside contributors are reviewed automatically once a maintainer adds the \`${REVIEW_LABEL}\` label.`);
+}
 if (diff.length > MAX_DIFF_CHARS) {
   await fail(`The diff is ${diff.length.toLocaleString("en-US")} characters, over the ${MAX_DIFF_CHARS.toLocaleString("en-US")} the automated review accepts. Split the change, or have a maintainer review it.`);
 }
@@ -130,7 +154,7 @@ if (response.stop_reason === "refusal") await fail("The model declined to review
 if (response.stop_reason === "max_tokens" || !response.parsed_output) await fail("The review did not produce a complete answer.");
 
 const review = response.parsed_output;
-await postComment(render(review));
+await postComment(render(review, response.model));
 const blocking = review.findings.filter((f) => f.severity === "blocking").length;
 console.log(`AI review: ${blocking} blocking, ${review.findings.length - blocking} other.`);
 process.exit(blocking ? 1 : 0);
