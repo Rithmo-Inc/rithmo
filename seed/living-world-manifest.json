@@ -1,0 +1,16 @@
+{
+  "_comment": "Synthetic documents introduced into Meridian's local company world. Identifiers name fictional company records, not live provider resources.",
+  "schemaVersion": 1,
+  "authoredAsOf": "2026-09-25",
+  "artifacts": [
+    {
+      "artifactId": "MW-LIV-0001",
+      "type": "doc",
+      "title": "Customer Support Policy v1.0",
+      "folderId": "MW-FLD-007",
+      "effectiveOn": "2026-09-14",
+      "owner": "MW-EMP-11",
+      "scope": "Inbound customer support requests across all tiers: response targets, what support may answer directly, what support may not commit to, standard procedures, exceptions, and escalation owners."
+    }
+  ]
+}

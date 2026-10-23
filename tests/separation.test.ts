@@ -135,6 +135,11 @@ const WORLD_STATE = [
   // durable state
   "living/livingCrmState.ts",
   "living/livingSupportState.ts",
+  // immutable document content and revision storage
+  "documents/document.ts",
+  "documents/revision.ts",
+  "documents/appendOnlyFile.ts",
+  "documents/revisionStore.ts",
   // historical reconstruction + the one read-model over it
   "living/asOf.ts",
   "living/supportSla.ts",
@@ -170,6 +175,14 @@ const LIVING_COMPANY = [
   "living/supportQueue.ts",
   "living/supportRetry.ts",
   "living/supportCapacity.ts",
+  // local policy decisions, operative history, and delayed document publication
+  "living/livingWorld.ts",
+  "living/supportPolicy.ts",
+  "living/supportPolicyHistory.ts",
+  "living/policyRevision.ts",
+  "living/policyRevisionCadence.ts",
+  "living/policyDocSchedule.ts",
+  "living/companyPolicy.ts",
   // state this layer owns
   "living/livingIncidentState.ts",
   "living/livingAccountRiskState.ts",

@@ -23,6 +23,7 @@ import {
   openLivingRenewal,
   resolveLivingIncident,
   runLivingStep,
+  type LivingRunContext,
   type LivingStepOutcome,
   type LivingStepResult,
 } from "./livingStep.ts";
@@ -47,6 +48,17 @@ import {
 } from "./worldClock.ts";
 
 export const DEFAULT_BASE_SEED = 1;
+
+/** Local deterministic work after the day's events and renewals, before its clock checkpoint. */
+export interface LivingDayCommitContext {
+  day: number;
+  dateMs: number;
+  /** 17:59:45 at Meridian's fixed local offset, after the 17:59:30 renewal phase. */
+  atMs: number;
+  baseSeed: number;
+  context: LivingRunContext;
+}
+export type BeforeLivingDayCommit = (day: LivingDayCommitContext) => void | Promise<void>;
 
 export interface LivingRunOptions {
   /** Business days to run. Must be at least 1. */
@@ -101,6 +113,8 @@ export interface LivingRunOptions {
    * the rate it was planned at, or its slots would be re-planned under different ids.
    */
   baseEventsPerDay?: number;
+  /** Optional local work. A failure keeps the clock on the preceding day for deterministic resume. */
+  beforeDayCommit?: BeforeLivingDayCommit;
 }
 
 /**
@@ -1059,6 +1073,13 @@ export async function runLivingWorld(opts: LivingRunOptions): Promise<LivingRunR
       }
     }
 
+
+    // Local policy/document work shares the SAME ledger as the day's business events. Complete it
+    // before the clock checkpoint, so an interrupted day can finish the work on its next invocation.
+    await opts.beforeDayCommit?.({
+      day, dateMs, atMs: instantAt(dateMs, LAST_HOUR, 59) + 45_000,
+      baseSeed: state.baseSeed, context,
+    });
 
     // Advance and persist the clock only once the whole day is committed. A crash part-way leaves
     // the clock on yesterday, so the next run re-plans the SAME day -- and the slots it already

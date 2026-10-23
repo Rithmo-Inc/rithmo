@@ -4,7 +4,7 @@
 // What they may not read is the admission ledger (what the controller concluded about
 // any act). Knowing the rules is not knowing the answers.
 
-import type { ActKind } from "../actions/types.ts";
+import type { ActKind, SupportPolicyRuleValue } from "../actions/types.ts";
 
 /**
  * The roles the charter knows about.
@@ -18,7 +18,7 @@ import type { ActKind } from "../actions/types.ts";
  * It is NOT a department role and it is NOT the start of a role framework. A Meridian support
  * employee acting ON a request is future work and will need its own role then.
  */
-export type RoleId = "vp_sales" | "account_exec" | "customer_contact" | "engineering_manager" | "customer_success_manager" | "deal_desk" | "revops_manager";
+export type RoleId = "vp_sales" | "account_exec" | "customer_contact" | "engineering_manager" | "customer_success_manager" | "customer_success_director" | "deal_desk" | "revops_manager";
 
 /**
  * Support request categories, and the severity each carries.
@@ -53,6 +53,71 @@ export const SUPPORT_CATEGORIES: Readonly<Record<string, SupportSeverity>> = Obj
   configuration_help: "question",
   data_export: "question",
 });
+
+export const SUPPORT_POLICY_ARTIFACT_ID = "MW-LIV-0001";
+/** The issued policy predates every permitted revision, even when no revision act is in the ledger. */
+export const SUPPORT_POLICY_INITIAL_VERSION = "1.0";
+export const SUPPORT_POLICY_INITIAL_EFFECTIVE_AT_MS = Date.parse("2026-09-14T00:00:00-07:00");
+
+export const REVISABLE_SUPPORT_POLICY_CLAUSES: Readonly<Record<string, { asIssued: SupportPolicyRuleValue }>> = Object.freeze({
+  data_export: Object.freeze({ asIssued: Object.freeze({ disposition: "direct" as const }) }),
+  // The issued response targets, one rule per severity. Rule-aware SLA callers select the policy
+  // revision operative at a request's arrival through supportPolicyHistory.ts; legacy calls retain these defaults.
+  response_cannot_dispatch: Object.freeze({ asIssued: Object.freeze({ amount: 4, unit: "business_hours" as const }) }),
+  response_degraded: Object.freeze({ asIssued: Object.freeze({ amount: 1, unit: "business_days" as const }) }),
+  response_question: Object.freeze({ asIssued: Object.freeze({ amount: 2, unit: "business_days" as const }) }),
+});
+
+/** The severity a response-target rule governs, or null for a rule that is not a response target. */
+export function responseTargetSeverity(clauseId: string): "cannot_dispatch" | "degraded" | "question" | null {
+  return clauseId === "response_cannot_dispatch" ? "cannot_dispatch"
+    : clauseId === "response_degraded" ? "degraded"
+    : clauseId === "response_question" ? "question" : null;
+}
+
+/** A well-formed value for a revisable rule. An approver is a roster id; validity cannot see the roster. */
+export function isLegalSupportPolicyClauseValue(clauseId: string, value: unknown): value is SupportPolicyRuleValue {
+  if (!Object.hasOwn(REVISABLE_SUPPORT_POLICY_CLAUSES, clauseId)) return false;
+  if (responseTargetSeverity(clauseId)) {
+    const t = value as Partial<{ amount: number; unit: string }> | null;
+    return !!t && typeof t === "object" && Object.keys(t).length === 2 && Number.isSafeInteger(t.amount) && t.amount! >= 1 && t.amount! <= 40
+      && (t.unit === "business_hours" || t.unit === "business_days");
+  }
+  const v = value as Partial<{ disposition: string; ownerEmployeeId: string }> | null;
+  if (!v || typeof v !== "object") return false;
+  if (v.disposition === "direct") return Object.keys(v).length === 1;
+  if (v.disposition === "escalate") return Object.keys(v).length === 2 && typeof v.ownerEmployeeId === "string" && /^MW-EMP-\d{2}$/.test(v.ownerEmployeeId);
+  return false;
+}
+
+/** Two rule values are the same decision. Key order does not matter. */
+export function sameSupportPolicyClauseValue(a: SupportPolicyRuleValue, b: SupportPolicyRuleValue): boolean {
+  if ("amount" in a || "amount" in b) return "amount" in a && "amount" in b && a.amount === b.amount && a.unit === b.unit;
+  return a.disposition === b.disposition && (a.disposition === "direct" || a.ownerEmployeeId === (b as { ownerEmployeeId: string }).ownerEmployeeId);
+}
+
+/**
+ * Is this a support-policy revision its owner may make? Shape and AUTHORITY only:
+ *
+ *   the document    is MW-LIV-0001, and nothing else -- no general document authority
+ *   the rule        is one of its revisable rules
+ *   the values      are both well formed for that rule, and differ -- a revision that changes nothing
+ *                   is not a decision
+ *   the version     is named
+ *   the time        is an instant
+ *
+ * Whether the claimed previous value is the CURRENT one, whether the version is unused and whether
+ * the timing follows the decision are questions about the record, answered in validity.
+ */
+export function isLegalSupportPolicyRevision(p: Record<string, unknown>): boolean {
+  if (p.artifactId !== SUPPORT_POLICY_ARTIFACT_ID) return false;
+  if (typeof p.clauseId !== "string") return false;
+  if (!isLegalSupportPolicyClauseValue(p.clauseId, p.previousValue)) return false;
+  if (!isLegalSupportPolicyClauseValue(p.clauseId, p.newValue)) return false;
+  if (sameSupportPolicyClauseValue(p.previousValue, p.newValue)) return false;
+  if (typeof p.versionLabel !== "string" || !/^\d+\.\d+$/.test(p.versionLabel)) return false;
+  return typeof p.effectiveAtMs === "number" && Number.isSafeInteger(p.effectiveAtMs) && p.effectiveAtMs > 0;
+}
 
 /** Is this a category the company recognises, carrying the severity that category implies? */
 export function isLegalSupportRequest(category: unknown, severity: unknown): boolean {
@@ -575,6 +640,23 @@ export const CHARTER: Record<RoleId, RoleCharter> = {
           "May record a renewal-register risk call (Watch or At risk) on an account, resting on a "
           + "support request that account actually sent, with a note in the account record.",
         permits: (p) => isLegalAccountRiskCall(p),
+      },
+    },
+  },
+  // The policy owner may revise this policy only; existing roles keep their prior authority.
+  customer_success_director: {
+    roleId: "customer_success_director",
+    title: "Director of Customer Success",
+    responsibilities: [
+      "Revise a structured rule of the customer support policy (MW-LIV-0001) you own, naming the version it is issued as and when it takes force.",
+    ],
+    mayEmit: ["support_policy_revised"],
+    scope: {
+      support_policy_revised: {
+        description:
+          "May revise a revisable rule of the customer support policy, MW-LIV-0001, only: from the value it "
+          + "holds to a different well-formed value, as a named version, taking force at a stated time.",
+        permits: (p) => isLegalSupportPolicyRevision(p),
       },
     },
   },
