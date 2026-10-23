@@ -17,9 +17,12 @@ const MAX_DIFF_CHARS = 200_000;
 const MARKER = "<!-- rithmo-ai-review -->";
 // The only account whose comment this script treats as its own.
 const BOT_LOGIN = "github-actions[bot]";
-// Authors whose pull requests are reviewed automatically. Anyone else's waits for a maintainer to add
-// this label, so a stranger cannot spend the repository's Anthropic key by opening or pushing to PRs.
-const TRUSTED = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+// Authors whose pull requests are reviewed automatically: those with write access to this repository.
+// Anyone else's waits for a maintainer to add this label, so a stranger cannot spend the repository's
+// Anthropic key by opening or pushing to PRs. Write access is read from the permission API, not from
+// author_association, which reports a member whose org membership is private as an outsider.
+// (The permission API reports maintain as write and triage as read.)
+const TRUSTED = new Set(["admin", "write"]);
 const REVIEW_LABEL = "ai-review";
 
 const { ANTHROPIC_API_KEY, GITHUB_TOKEN, REPOSITORY, PR_NUMBER, HEAD_SHA } = process.env;
@@ -111,7 +114,15 @@ try {
 if (HEAD_SHA && pr.head?.sha !== HEAD_SHA) {
   await fail("The pull request changed while this review was starting. The run for its newest commit reviews it.");
 }
-if (!TRUSTED.has(pr.author_association) && !pr.labels?.some((l) => l.name === REVIEW_LABEL)) {
+let authorPermission = null;
+try {
+  authorPermission = (await (await github(`/collaborators/${encodeURIComponent(pr.user.login)}/permission`)).json()).permission;
+} catch (e) {
+  // Not a collaborator (404), or unreadable: treated as an outside contributor. Logged, so a
+  // permission problem is not mistaken for an outsider.
+  console.error(`Author permission not readable: ${e.message.split("\n")[0].slice(0, 200)}`);
+}
+if (!TRUSTED.has(authorPermission) && !pr.labels?.some((l) => l.name === REVIEW_LABEL)) {
   await fail(`Pull requests from outside contributors are reviewed automatically once a maintainer adds the \`${REVIEW_LABEL}\` label and re-runs this check.`);
 }
 if (diff.length > MAX_DIFF_CHARS) {
