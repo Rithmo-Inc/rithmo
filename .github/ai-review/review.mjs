@@ -21,7 +21,8 @@ const BOT_LOGIN = "github-actions[bot]";
 // Anyone else's waits for a maintainer to add this label, so a stranger cannot spend the repository's
 // Anthropic key by opening or pushing to PRs. Write access is read from the permission API, not from
 // author_association, which reports a member whose org membership is private as an outsider.
-const TRUSTED = new Set(["admin", "maintain", "write"]);
+// (The permission API reports maintain as write and triage as read.)
+const TRUSTED = new Set(["admin", "write"]);
 const REVIEW_LABEL = "ai-review";
 
 const { ANTHROPIC_API_KEY, GITHUB_TOKEN, REPOSITORY, PR_NUMBER, HEAD_SHA } = process.env;
@@ -116,8 +117,10 @@ if (HEAD_SHA && pr.head?.sha !== HEAD_SHA) {
 let authorPermission = null;
 try {
   authorPermission = (await (await github(`/collaborators/${encodeURIComponent(pr.user.login)}/permission`)).json()).permission;
-} catch {
-  // Not a collaborator, or unreadable: treated as an outside contributor.
+} catch (e) {
+  // Not a collaborator (404), or unreadable: treated as an outside contributor. Logged, so a
+  // permission problem is not mistaken for an outsider.
+  console.error(`Author permission not readable: ${e.message.split("\n")[0].slice(0, 200)}`);
 }
 if (!TRUSTED.has(authorPermission) && !pr.labels?.some((l) => l.name === REVIEW_LABEL)) {
   await fail(`Pull requests from outside contributors are reviewed automatically once a maintainer adds the \`${REVIEW_LABEL}\` label and re-runs this check.`);
