@@ -73,8 +73,9 @@ async function fail(reason) {
   process.exit(1);
 }
 
-/** Model text goes into a comment posted as this repository: no @-mentions, no images. */
-const inert = (text) => text.replace(/@/g, "@\u200b").replace(/!\[/g, "!\u200b[");
+/** Model text goes into a comment posted as this repository: no @-mentions, images, raw HTML or
+ *  issue cross-references. */
+const inert = (text) => text.replace(/</g, "&lt;").replace(/@/g, "@\u200b").replace(/!\[/g, "!\u200b[").replace(/#/g, "#\u200b");
 
 function render(review, model) {
   const icon = { blocking: "🛑", warning: "⚠️", note: "💬" };
@@ -111,7 +112,7 @@ if (HEAD_SHA && pr.head?.sha !== HEAD_SHA) {
   await fail("The pull request changed while this review was starting. The run for its newest commit reviews it.");
 }
 if (!TRUSTED.has(pr.author_association) && !pr.labels?.some((l) => l.name === REVIEW_LABEL)) {
-  await fail(`Pull requests from outside contributors are reviewed automatically once a maintainer adds the \`${REVIEW_LABEL}\` label.`);
+  await fail(`Pull requests from outside contributors are reviewed automatically once a maintainer adds the \`${REVIEW_LABEL}\` label and re-runs this check.`);
 }
 if (diff.length > MAX_DIFF_CHARS) {
   await fail(`The diff is ${diff.length.toLocaleString("en-US")} characters, over the ${MAX_DIFF_CHARS.toLocaleString("en-US")} the automated review accepts. Split the change, or have a maintainer review it.`);

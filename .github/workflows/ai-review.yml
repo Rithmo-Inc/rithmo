@@ -12,8 +12,10 @@ name: ai-review
 
 on:
   pull_request_target:
-    # `labeled`: a maintainer adds the `ai-review` label to have an outside contributor's PR reviewed.
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    # No `labeled` trigger: adding an unrelated label must never replace a failed `ai-review` check
+    # with a skipped (passing) one. An outside contributor's PR is reviewed when a maintainer adds the
+    # `ai-review` label and re-runs this check.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -24,8 +26,6 @@ concurrency:
 
 jobs:
   ai-review:
-    # Adding any other label does not start a (paid) review.
-    if: github.event.action != 'labeled' || github.event.label.name == 'ai-review'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
